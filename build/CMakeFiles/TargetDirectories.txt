@@ -1,0 +1,4 @@
+/home/ubuntu/IITB/SEM1/DECS/user-registry/build/CMakeFiles/user_registry.dir
+/home/ubuntu/IITB/SEM1/DECS/user-registry/build/CMakeFiles/gen_users.dir
+/home/ubuntu/IITB/SEM1/DECS/user-registry/build/CMakeFiles/edit_cache.dir
+/home/ubuntu/IITB/SEM1/DECS/user-registry/build/CMakeFiles/rebuild_cache.dir
