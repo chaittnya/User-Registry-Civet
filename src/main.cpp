@@ -4,23 +4,26 @@
 #include <iostream>
 
 #include "app/app.hpp"
+#include "db/db.hpp"
 #include "handlers/users_handler.hpp"
+
+using namespace std;
 
 int main() {
     App app;
 
-    if (!app.db.connect_from_env()) {
-        std::cerr << "Failed to connect to Postgres. Set DATABASE_URL.\n";
+    if (!Pg::init_from_env()) { 
+        cerr << "Failed to connect to Postgres. Set DATABASE_URL.\n";
         return 1;
     }
-    if (!app.db.prepare()) {
-        std::cerr << "Failed to prepare schema/statements.\n";
+    if (!Pg::instance().ensure_schema()) { 
+        cerr << "Failed to prepare database." << endl;
         return 1;
     }
 
     const char *options[] = {
         "listening_ports", "8080",
-        "num_threads",     "8",
+        "num_threads", "8",
         nullptr
     };
     CivetServer server(options);
@@ -32,6 +35,6 @@ int main() {
     server.addHandler("/token", users);             // POST /token
     server.addHandler("/healthz", users);           // GET  /healthz
 
-    std::cout << "listening on http://localhost:8080\n";
-    while (true) std::this_thread::sleep_for(std::chrono::hours(24));
+    cout << "listening on http://localhost:8080\n";
+    while (true) this_thread::sleep_for(chrono::hours(24));
 }

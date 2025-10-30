@@ -25,6 +25,7 @@ target_include_directories(user_registry PRIVATE
     src
     ${CIVETWEB_ROOT}/include
     ${CIVETWEB_ROOT}/include/civetweb
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 # CivetWeb feature flags (must match for both sources)
@@ -39,6 +40,7 @@ target_compile_definitions(user_registry PRIVATE
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PostgreSQL REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 message(STATUS "PostgreSQL include dirs: ${PostgreSQL_INCLUDE_DIRS}")
 message(STATUS "PostgreSQL libraries   : ${PostgreSQL_LIBRARIES}")
@@ -49,6 +51,7 @@ target_link_libraries(user_registry PRIVATE
     OpenSSL::SSL            # keep for PBKDF2 (we use OpenSSL directly)
     OpenSSL::Crypto
     Threads::Threads
+    nlohmann_json::nlohmann_json
 )
 
 if(UNIX AND NOT APPLE)

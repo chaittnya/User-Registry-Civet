@@ -1,151 +1,151 @@
 #include "db.hpp"
 #include<iostream>
 #include <cstdlib>
+#include <cstdio>
 #include <string>
+#include <vector>
 
-Pg::~Pg() {
-    if (conn_) PQfinish(conn_);
+using namespace std;
+
+static string g_conninfo;
+
+bool Pg::init_from_env() {
+  const char* dsn = getenv("DATABASE_URL");
+  if (!dsn || !*dsn) {
+    return false;
+  }
+  g_conninfo = dsn; 
+  return true;
+}
+void Pg::shutdown() {}
+
+thread_local Pg* tl_pg = nullptr;
+
+Pg& Pg::instance() {
+  if (!tl_pg) {
+    tl_pg = new Pg();
+  }
+  return *tl_pg;
 }
 
-bool Pg::connect_from_env() {
-    std::cout<<"connecting to database...\n";
-    const char* dsn = std::getenv("DATABASE_URL");
-    std::cout<<dsn<<std::endl;
-    if (!dsn || !*dsn) return false;
-    conn_ = PQconnectdb(dsn);
-    return PQstatus(conn_) == CONNECTION_OK;
+Pg::Pg() : conn(nullptr) {
+    cout<<"Creating Connection"<<endl;
 }
 
-bool Pg::exec_ok(const char* sql) {
-    PGresult* r = PQexec(conn_, sql);
-    if (!r) return false;
-    bool ok = (PQresultStatus(r) == PGRES_COMMAND_OK);
-    PQclear(r);
-    return ok;
+Pg::~Pg() { 
+    cout<<"Closing Connection"<<endl;
+    if (conn) {
+        PQfinish(conn); 
+        conn = nullptr; 
+    } 
 }
 
-bool Pg::prepare() {
-    // Schema
-    const char* schema =
-        "CREATE TABLE IF NOT EXISTS users ("
-        "  id BIGSERIAL PRIMARY KEY,"
-        "  name TEXT NOT NULL,"
-        "  mobile TEXT NOT NULL,"
-        "  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
-        ");";
-    if (!exec_ok(schema)) return false;
-
-    PGresult* r = nullptr;
-
-    // Insert (upsert-like via DO NOTHING) and return row
-    r = PQprepare(conn_, "ins_user",
-        "INSERT INTO users(name,mobile) VALUES($1,$2) "
-        "RETURNING id::text,name,mobile,TO_CHAR(created_at,'YYYY-MM-DD\"T\"HH24:MI:SSZ')",
-        2, nullptr);
-    if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) { if (r) PQclear(r); return false; }
-    PQclear(r);
-
-    // Select by id
-    r = PQprepare(conn_, "sel_user_id",
-        "SELECT id::text,name,mobile,TO_CHAR(created_at,'YYYY-MM-DD\"T\"HH24:MI:SSZ') "
-        "FROM users WHERE id=$1",
-        1, nullptr);
-    if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) { if (r) PQclear(r); return false; }
-    PQclear(r);
-
-    // Select by mobile
-    r = PQprepare(conn_, "sel_user_mobile",
-        "SELECT id::text,name,mobile,TO_CHAR(created_at,'YYYY-MM-DD\"T\"HH24:MI:SSZ') "
-        "FROM users WHERE mobile=$1",
-        1, nullptr);
-    if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) { if (r) PQclear(r); return false; }
-    PQclear(r);
-
-    return true;
-}
-
-std::optional<User> Pg::create_user(const std::string& name, const std::string& mobile) {
-    const char* params[2] = { name.c_str(), mobile.c_str() };
-    PGresult* r = PQexecPrepared(conn_, "ins_user", 2, params, nullptr, nullptr, 0);
-    if (!r) return std::nullopt;
-
-    if (PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-        User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-        PQclear(r);
-        return u;
+PGconn* Pg::get_connection() {
+    if (conn && PQstatus(conn) == CONNECTION_OK) {
+        return conn;
     }
-    PQclear(r);
-    return std::nullopt;
+    if (conn) { PQfinish(conn); conn = nullptr; }
+    conn = PQconnectdb(g_conninfo.c_str());
+    return (conn && PQstatus(conn) == CONNECTION_OK) ? conn : nullptr;
 }
 
-std::optional<User> Pg::get_user_by_id(const std::string& id) {
+bool Pg::ensure_schema() {
+    PGconn* c = get_connection(); 
+    if (!c) {
+        return false;
+    }
+    const char* ddl = "CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, mobile TEXT UNIQUE NOT NULL);";
+    PGresult* r = PQexec(c, ddl);
+    if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) { 
+        if (r) PQclear(r); 
+        return false; 
+    }
+    PQclear(r); return true;
+}
+
+static optional<User> row_to_user(PGresult* res, int i) {
+    User u; 
+    u.id=PQgetvalue(res,i,0); 
+    u.name=PQgetvalue(res,i,1); 
+    u.mobile=PQgetvalue(res,i,2); 
+    return u;
+}
+
+optional<User> Pg::get_user_by_id(const string& id) {
+    PGconn* c = get_connection(); 
+    if (!c) {
+        return nullopt;
+    }
+    const char* sql = "SELECT id,name,mobile FROM users WHERE id = $1::bigint";
     const char* params[1] = { id.c_str() };
-    PGresult* r = PQexecPrepared(conn_, "sel_user_id", 1, params, nullptr, nullptr, 0);
-    if (!r) return std::nullopt;
-
-    if (PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-        User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-        PQclear(r);
-        return u;
+    PGresult* r = PQexecParams(c, sql, 1, nullptr, params, nullptr, nullptr, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) { 
+        if (r) PQclear(r); 
+        return nullopt; 
     }
-    PQclear(r);
-    return std::nullopt;
+    auto out = (PQntuples(r)>0) ? row_to_user(r,0) : optional<User>{};
+    PQclear(r); 
+    return out;
 }
 
-std::optional<User> Pg::get_user_by_mobile(const std::string& mobile) {
+optional<User> Pg::get_user_by_mobile(const string& mobile) {
+    PGconn* c = get_connection(); 
+    if (!c) {
+        return nullopt;
+    }
+    const char* sql = "SELECT id,name,mobile FROM users WHERE mobile = $1";
     const char* params[1] = { mobile.c_str() };
-    PGresult* r = PQexecPrepared(conn_, "sel_user_mobile", 1, params, nullptr, nullptr, 0);
-    if (!r) return std::nullopt;
-
-    if (PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-        User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-        PQclear(r);
-        return u;
+    PGresult* r = PQexecParams(c, sql, 1, nullptr, params, nullptr, nullptr, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) { 
+        if (r) PQclear(r); 
+        return nullopt; 
     }
-    PQclear(r);
-    return std::nullopt;
+    auto out = (PQntuples(r)>0) ? row_to_user(r,0) : optional<User>{};
+    PQclear(r); 
+    return out;
 }
 
-// std::optional<User> Pg::create_user(const std::string& id, const std::string& name, const std::string& mobile) {
-//     const char* params[2] = {  name.c_str(), mobile.c_str() };
-//     PGresult* r = PQexecPrepared(conn_, "ins_user", 3, params, nullptr, nullptr, 0);
-//     if (!r) return std::nullopt;
+optional<User> Pg::create_user(const string& name, const string& mobile) {
+    PGconn* c = get_connection(); 
+    if (!c) {
+        return nullopt;
+    }
+    const char* sql = "INSERT INTO users(name,mobile) VALUES($1,$2) ON CONFLICT (mobile) DO UPDATE SET name=EXCLUDED.name RETURNING id,name,mobile";
+    const char* params[2] = { name.c_str(), mobile.c_str() };
+    PGresult* r = PQexecParams(c, sql, 2, nullptr, params, nullptr, nullptr, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) { 
+        if (r) PQclear(r); 
+        return nullopt; 
+    }
+    auto out = (PQntuples(r)>0) ? row_to_user(r,0) : optional<User>{};
+    PQclear(r); 
+    return out;
+}
 
-//     auto status = PQresultStatus(r);
-//     if (status == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-//         User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-//         PQclear(r);
-//         return u;
-//     }
-//     PQclear(r);
-//     // Insert did nothing (id exists) → fetch existing row
-//     return get_user_by_id(id);
-// }
+vector<string> Pg::get_random_user_ids(int n) {
+    vector<string> out;
+    if (n <= 0) {
+        return out;
+    }
+    PGconn* c = get_connection();
+    if (!c) {
+        return out;
+    }
 
-// std::optional<User> Pg::get_user_by_id(const std::string& id) {
-//     const char* params[1] = { id.c_str() };
-//     PGresult* r = PQexecPrepared(conn_, "sel_user_id", 1, params, nullptr, nullptr, 0);
-//     if (!r) return std::nullopt;
+    const string lim = to_string(n);
+    const char* params[1] = { lim.c_str() };
+    static const char* sql = "SELECT id::text FROM users ORDER BY random() LIMIT $1::int";
 
-//     if (PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-//         User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-//         PQclear(r);
-//         return u;
-//     }
-//     PQclear(r);
-//     return std::nullopt;
-// }
-
-// std::optional<User> Pg::get_user_by_mobile(const std::string& mobile) {
-//     const char* params[1] = { mobile.c_str() };
-//     PGresult* r = PQexecPrepared(conn_, "sel_user_mobile", 1, params, nullptr, nullptr, 0);
-//     if (!r) return std::nullopt;
-
-//     if (PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
-//         User u{ PQgetvalue(r,0,0), PQgetvalue(r,0,1), PQgetvalue(r,0,2), PQgetvalue(r,0,3) };
-//         PQclear(r);
-//         return u;
-//     }
-//     PQclear(r);
-//     return std::nullopt;
-// }
+    PGresult* r = PQexecParams(c, sql, 1, nullptr, params, nullptr, nullptr, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return out;
+    }
+    const int rows = PQntuples(r);
+    out.reserve(rows);
+    for (int i = 0; i < rows; ++i) {
+        out.emplace_back(PQgetvalue(r, i, 0));
+    }
+    PQclear(r);
+    return out;
+}

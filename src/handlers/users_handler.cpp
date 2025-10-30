@@ -2,26 +2,39 @@
 #include <string>
 #include<iostream>
 #include <optional>
-#include <cstring> 
+#include <cstring>
+
+#include "../db/db.hpp"
 #include "../utils/strutils.hpp"
+#include "../utils/apiutils.hpp"
 #include "../utils/json.hpp"
 #include "../token/pbkdf2.hpp"
 
+using namespace std;
+using Json = nlohmann::json;
+
 bool UsersHandler::handlePost(CivetServer*, mg_connection* conn) {
     const mg_request_info* ri = mg_get_request_info(conn);
-    std::string path = ri->local_uri ? ri->local_uri : "";
+    string path = ri->local_uri ? ri->local_uri : "";
 
+    auto body = Json::parse(read_body(conn));
+    
     if (path == "/users") {
-        auto body = read_body(conn);
-        auto name   = json_extract_string(body, "name");
-        auto mobile = json_extract_string(body, "mobile");
-        if (!name || !mobile || name->empty() || mobile->empty()) {
-            write_json(conn, 400, "{\"error\":\"name, mobile required\"}");
+        // auto body = read_body(conn);
+        // auto nm = get_key_from_json(body, "name");
+        // cout << *nm <<endl;
+        string name = json_get_or<string>(body, "name", "");
+        string mobile = json_get_or<string>(body, "mobile", "");
+        if (name.empty() || mobile.empty()) {
+            write_json(conn, 400, {{"error", "name, mobile required"}});
             return true;
         }
 
-        auto u = app_->db.create_user(*name, *mobile);
-        if (!u) { write_json(conn, 500, "{\"error\":\"db error\"}"); return true; }
+        auto u = Pg::instance().create_user(name, mobile);
+        if (!u) {
+            write_json(conn, 500, {{"error", "db error"}}); 
+            return true; 
+        }
 
         app_->cache.put(*u);
         write_json(conn, 201, user_to_json(*u));
@@ -29,60 +42,99 @@ bool UsersHandler::handlePost(CivetServer*, mg_connection* conn) {
     }
 
     if (path == "/token") {
-        auto body = read_body(conn);
-        auto mobile = json_extract_string(body, "mobile");
-        int iters   = json_extract_int(body, "iterations", 700000);
-        if (!mobile || mobile->empty()) {
-            write_json(conn, 400, "{\"error\":\"mobile required\"}");
+        // auto body = read_body(conn);
+        string mobile = json_get_or<string>(body, "mobile", "");
+        int iters = json_get_or<int>(body, "iterations", 700000);
+        // cout<<mobile<<" "<<iters<<endl;
+        if (mobile.empty()) {
+            write_json(conn, 400, {{"error", "mobile required"}});
             return true;
         }
-        auto tok = derive_token(*mobile, iters);
-        std::ostringstream os;
-        os << "{"
-           << json_kv("mobile", *mobile) << ","
-           << json_kv("iterations", std::to_string(iters), /*quote*/false) << ","
-           << json_kv("token", tok)
-           << "}";
-        write_json(conn, 200, os.str());
+        auto tok = derive_token(mobile, iters);
+        Json response = {
+            {"mobile", mobile },
+            {"iterations", iters},
+            {"token", tok}
+        };
+        write_json(conn, 200, response);
         return true;
     }
 
-    write_json(conn, 404, "{\"error\":\"not found\"}");
+    write_json(conn, 404, {{"error", "not found"}});
     return true;
 }
 
 bool UsersHandler::handleGet(CivetServer*, mg_connection* conn) {
     const mg_request_info* ri = mg_get_request_info(conn);
-    std::string path = ri->local_uri ? ri->local_uri : "";
+    string path = ri->local_uri ? ri->local_uri : "";
 
     if (path.rfind("/users/by-phone", 0) == 0) {
-        std::string mobile = query_param(ri, "mobile");
-        std::cout<<mobile<<std::endl;
+        string mobile = query_param(ri, "mobile");
+        cout<<mobile<<endl;
         if (mobile.empty()) {
-            write_json(conn, 400, "{\"error\":\"missing ?mobile= param\"}");
+            write_json(conn, 400, {{"error", "missing ?mobile= param"}});
             return true;
         }
-        if (auto cu = app_->cache.getByMobile(mobile)) {
+
+        if (auto cu = app_->cache.get_by_mobile(mobile)) {
             write_json(conn, 200, user_to_json(*cu, "cache"));
             return true;
         }
-        auto u = app_->db.get_user_by_mobile(mobile);
-        if (!u) { write_json(conn, 404, "{\"error\":\"not found\"}"); return true; }
+
+        auto u = Pg::instance().get_user_by_mobile(mobile);
+        if (!u) { 
+            write_json(conn, 404, {{"error", "not found"}}); 
+            return true; 
+        }
         app_->cache.put(*u);
         write_json(conn, 200, user_to_json(*u, "db"));
         return true;
     }
 
-    if (path.rfind("/users/", 0) == 0) {
-        std::string id = path.substr(std::string("/users/").size());
-        if (id.empty()) { write_json(conn, 400, "{\"error\":\"missing id\"}"); return true; }
+    if (path == "/users/random") {
+        const mg_request_info* ri = mg_get_request_info(conn);
+        string n_str = query_param(ri, "n");
 
-        if (auto cu = app_->cache.getById(id)) {
+        if (n_str.empty()) {
+            write_json(conn, 400, {{"error", "missing n"}});
+            return true;
+        }
+
+        int n = 0;
+        try { n = std::stoi(n_str); }
+        catch (...) { write_json(conn, 400, {{"error", "invalid n"}}); return true; }
+
+        if (n <= 0) {
+            write_json(conn, 400, {{"error", "n must be positive"}});
+            return true;
+        }
+
+        auto ids = Pg::instance().get_random_user_ids(n);
+        Json arr = Json::array();
+        for (auto& id : ids) arr.push_back(id);
+
+        write_json(conn, 200, {
+            {"requested", n},
+            {"returned", static_cast<int>(ids.size())},
+            {"ids", arr}
+        });
+
+        return true;
+    }
+
+    if (path.rfind("/users/", 0) == 0) {
+        string id = path.substr(string("/users/").size());
+        if (id.empty()) { write_json(conn, 400, {{"error", "missing id"}}); return true; }
+
+        if (auto cu = app_->cache.get_by_id(id)) {
             write_json(conn, 200, user_to_json(*cu, "cache"));
             return true;
         }
-        auto u = app_->db.get_user_by_id(id);
-        if (!u) { write_json(conn, 404, "{\"error\":\"not found\"}"); return true; }
+        auto u = Pg::instance().get_user_by_id(id);
+        if (!u) { 
+            write_json(conn, 404, {{"error", "not found"}}); 
+            return true; 
+        }
         app_->cache.put(*u);
         write_json(conn, 200, user_to_json(*u, "db"));
         return true;
@@ -94,6 +146,7 @@ bool UsersHandler::handleGet(CivetServer*, mg_connection* conn) {
         return true;
     }
 
-    write_json(conn, 404, "{\"error\":\"not found\"}");
+    write_json(conn, 404, {{"error", "not found"}});
     return true;
 }
+

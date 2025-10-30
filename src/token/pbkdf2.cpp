@@ -5,16 +5,18 @@
 std::string derive_token(const std::string& mobile, int iterations) {
     if (iterations <= 0) iterations = 700000;
 
-    // Deterministic salt from mobile (helps testing)
     unsigned char salt[32];
-    std::string pref = "fixed-salt-prefix::" + mobile;
+    std::string pref = "user-token::" + mobile;
     SHA256(reinterpret_cast<const unsigned char*>(pref.c_str()), pref.size(), salt);
 
     unsigned char key[32];
     PKCS5_PBKDF2_HMAC(
-        mobile.c_str(), static_cast<int>(mobile.size()),
-        salt, sizeof(salt),
-        iterations, EVP_sha256(),
+        mobile.c_str(), 
+        static_cast<int>(mobile.size()),
+        salt, 
+        sizeof(salt),
+        iterations, 
+        EVP_sha256(),
         sizeof(key), key
     );
 

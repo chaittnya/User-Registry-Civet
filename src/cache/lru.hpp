@@ -5,16 +5,18 @@
 #include <optional>
 #include "../models/user.hpp"
 
+using namespace std;
+
 class LRU {
-    struct Node { std::string key; User value; };
-    size_t cap_;
-    std::list<Node> list_; // front = MRU
-    std::unordered_map<std::string, std::list<Node>::iterator> byId_;
-    std::unordered_map<std::string, std::string> byMobile_; // mobile -> id
-    std::mutex mu_;
+    struct Node { string key; User value; };
+    size_t capacity;
+    list<Node> mru_list; // front = MRU
+    unordered_map<string, list<Node>::iterator> mapById;
+    unordered_map<string, string> mapByMobile; // mobile -> id
+    mutex lock;
 public:
-    explicit LRU(size_t cap): cap_(cap?cap:1) {}
-    std::optional<User> getById(const std::string& id);
-    std::optional<User> getByMobile(const std::string& mobile);
+    explicit LRU(size_t cap): capacity(cap?cap:1) {}
+    optional<User> get_by_id(const string& id);
+    optional<User> get_by_mobile(const string& mobile);
     void put(const User& u);
 };
