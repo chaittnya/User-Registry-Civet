@@ -1,6 +1,7 @@
 #pragma once
 #include "../cache/lru.hpp"
 
-struct App {
+struct App
+{
     LRU cache{1024};
 };
