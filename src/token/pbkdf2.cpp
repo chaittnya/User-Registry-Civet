@@ -12,14 +12,7 @@ std::string derive_token(const std::string &mobile, int iterations)
     SHA256(reinterpret_cast<const unsigned char *>(pref.c_str()), pref.size(), salt);
 
     unsigned char key[32];
-    PKCS5_PBKDF2_HMAC(
-        mobile.c_str(),
-        static_cast<int>(mobile.size()),
-        salt,
-        sizeof(salt),
-        iterations,
-        EVP_sha256(),
-        sizeof(key), key);
+    PKCS5_PBKDF2_HMAC(mobile.c_str(), static_cast<int>(mobile.size()), salt, sizeof(salt), iterations, EVP_sha256(), sizeof(key), key);
 
     static const char *hexd = "0123456789abcdef";
     std::string out;

@@ -45,7 +45,7 @@ bool UsersHandler::handlePost(CivetServer *, mg_connection *conn)
         return true;
     }
 
-    if (path == "/token")
+    if (path == "/users/token")
     {
         // auto body = read_body(conn);
         string mobile = json_get_or<string>(body, "mobile", "");
@@ -161,13 +161,6 @@ bool UsersHandler::handleGet(CivetServer *, mg_connection *conn)
         }
         app_->cache.put(*u);
         write_json(conn, 200, user_to_json(*u, "db"));
-        return true;
-    }
-
-    if (path == "/healthz")
-    {
-        const char *ok = "ok";
-        mg_printf(conn, "HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n%s", strlen(ok), ok);
         return true;
     }
 
