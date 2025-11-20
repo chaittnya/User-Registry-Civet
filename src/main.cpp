@@ -35,7 +35,7 @@ int main() {
     server.addHandler("/users", users); // POST /users
     server.addHandler("/users/", users); // GET  /users/{id}
     server.addHandler("/users/by-phone", users); // GET  /users/by-phone?mobile=...
-    server.addHandler("/users/token", users); // POST /token
+    server.addHandler("/users/token", users); // POST /users/token
     
     cout << "Started server with "<< threads <<" threads, listening on PORT " << port << endl;
     while (true) this_thread::sleep_for(chrono::hours(24));

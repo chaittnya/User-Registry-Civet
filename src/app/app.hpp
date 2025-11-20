@@ -3,5 +3,5 @@
 
 struct App
 {
-    LRU cache{1024};
+    LRU cache{65536};
 };
