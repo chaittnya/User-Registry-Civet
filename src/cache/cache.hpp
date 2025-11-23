@@ -1,28 +1,31 @@
 #pragma once
 #include <unordered_map>
 #include <list>
-#include <mutex>
+#include <mutex> 
+#include <shared_mutex>   // C++17
 #include <optional>
 #include "../models/user.hpp"
 
 using namespace std;
 
-class LRU
+class Cache  // now FCFS/FIFO cache based on id
 {
     struct Node
     {
-        string key;
+        string key; // id
         User value;
     };
+
     size_t capacity;
-    list<Node> mru_list; // front = MRU
+    list<Node> queue; // front = newest, back = oldest (for eviction)
     unordered_map<string, list<Node>::iterator> mapById;
-    unordered_map<string, string> mapByMobile; // mobile -> id
-    mutex lock;
+
+    mutable shared_mutex rwlock; // shared for reads, unique for writes
 
 public:
-    explicit LRU(size_t cap) : capacity(cap ? cap : 1) {}
+    explicit Cache(size_t cap) : capacity(cap ? cap : 1) {}
+
     optional<User> get_by_id(const string &id);
-    optional<User> get_by_mobile(const string &mobile);
     void put(const User &u);
 };
+

@@ -84,12 +84,6 @@ bool UsersHandler::handleGet(CivetServer *, mg_connection *conn)
             return true;
         }
 
-        if (auto cu = app_->cache.get_by_mobile(mobile))
-        {
-            write_json(conn, 200, user_to_json(*cu, "cache"));
-            return true;
-        }
-
         auto u = Pg::instance().get_user_by_mobile(mobile);
         if (!u)
         {

@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16
+    container_name: user-registry-db
+    environment:
+      POSTGRES_USER: chaitanya
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: user_registry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    # (optional) resource controls when using Swarm; ignored by plain compose
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  user-registry:
+    build: .
+    container_name: user-registry
+    depends_on:
+      - db
+    environment:
+      # Container-to-container hostname is the *service name* "db"
+      CIVET_DATABASE_URL: "postgresql://chaitanya:secretpassword@db:5432/user_registry"
+      CIVET_PORT: "8080"
+      CIVET_THREADS: "4"
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 2g
+
+volumes:
+  pgdata:
+
