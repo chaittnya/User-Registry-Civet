@@ -49,7 +49,7 @@ bool UsersHandler::handlePost(CivetServer *, mg_connection *conn)
     {
         // auto body = read_body(conn);
         string mobile = json_get_or<string>(body, "mobile", "");
-        int iters = json_get_or<int>(body, "iterations", 700000);
+        int iters = json_get_or<int>(body, "iterations", 70000);
         // cout<<mobile<<" "<<iters<<endl;
         if (mobile.empty())
         {
